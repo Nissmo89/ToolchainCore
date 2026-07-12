@@ -114,5 +114,12 @@ struct RunResult {
     ExecutionResult execution;
 };
 
+class CCC_EXPORT MemoryModule {
+public:
+    virtual ~MemoryModule() = default;
+    [[nodiscard]] virtual void* getSymbol(const QString &name) const = 0;
+};
+
 }
+
 

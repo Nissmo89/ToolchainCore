@@ -5,6 +5,7 @@
 #include "ccc/types.h"
 
 #include <QObject>
+#include <memory>
 
 namespace ccc {
 
@@ -24,6 +25,11 @@ public:
     [[nodiscard]] ExecutionResult runExecutable(const QString &executablePath,
                                                 const QStringList &arguments = QStringList(),
                                                 const QString &workingDirectory = QString()) const;
+
+    [[nodiscard]] std::unique_ptr<MemoryModule> compileToMemory(const QString &sourcePathOrCode,
+                                                                const CompileConfig &config,
+                                                                QString &errorMessage) const;
+
 
 private:
     [[nodiscard]] static QString resolveWorkingDirectory(const QString &sourcePath,

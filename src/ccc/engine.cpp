@@ -1,6 +1,7 @@
 #include "ccc/engine.h"
 
 #include "ccc/backends/externalcompilerbackend.h"
+#include "ccc/backends/internaltccbackend.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -75,12 +76,7 @@ CompilationResult Engine::compile(const QString &sourcePath,
     }
 
     if (config.outputType == OutputType::Memory) {
-        failure.errorMessage = QStringLiteral("Memory output is not enabled in the current ToolchainCore build.");
-        return failure;
-    }
-
-    if (config.backendKind == BackendKind::InternalTcc) {
-        failure.errorMessage = QStringLiteral("Internal TCC backend is not enabled yet.");
+        failure.errorMessage = QStringLiteral("Memory output is not supported for file compilation. Use compileToMemory instead.");
         return failure;
     }
 
@@ -99,12 +95,50 @@ CompilationResult Engine::compile(const QString &sourcePath,
         return failure;
     }
 
-    ExternalCompilerBackend backend;
-    CompilationResult result = backend.compile(absoluteSourcePath, absoluteOutputPath, normalized);
-    if (result.outputPath.isEmpty()) {
-        result.outputPath = absoluteOutputPath;
+    BackendKind selectedBackend = config.backendKind;
+    if (selectedBackend == BackendKind::Auto) {
+        ExternalCompilerBackend extBackend;
+        if (extBackend.isAvailable()) {
+            selectedBackend = BackendKind::ExternalCompiler;
+        } else {
+            InternalTccBackend tccBackend;
+            if (tccBackend.isAvailable()) {
+                selectedBackend = BackendKind::InternalTcc;
+            } else {
+                failure.errorMessage = QStringLiteral("No available compiler backend found (GCC/Clang/CC not found, and internal TCC is disabled).");
+                return failure;
+            }
+        }
     }
-    return result;
+
+    if (selectedBackend == BackendKind::InternalTcc) {
+        InternalTccBackend backend;
+        CompilationResult result = backend.compile(absoluteSourcePath, absoluteOutputPath, normalized);
+        if (result.outputPath.isEmpty()) {
+            result.outputPath = absoluteOutputPath;
+        }
+        return result;
+    } else {
+        ExternalCompilerBackend backend;
+        CompilationResult result = backend.compile(absoluteSourcePath, absoluteOutputPath, normalized);
+        if (result.outputPath.isEmpty()) {
+            result.outputPath = absoluteOutputPath;
+        }
+        return result;
+    }
+}
+
+std::unique_ptr<MemoryModule> Engine::compileToMemory(const QString &sourcePathOrCode,
+                                                      const CompileConfig &config,
+                                                      QString &errorMessage) const
+{
+    InternalTccBackend backend;
+    if (!backend.isAvailable()) {
+        errorMessage = QStringLiteral("Internal TinyCC backend is not available. Memory compilation is unsupported.");
+        return nullptr;
+    }
+
+    return backend.compileToMemory(sourcePathOrCode, config, errorMessage);
 }
 
 RunResult Engine::compileAndRun(const QString &sourcePath,

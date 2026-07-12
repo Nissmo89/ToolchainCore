@@ -28,10 +28,12 @@ target_sources(ToolchainCore
         src/ccc/engine.h
         src/ccc/backends/compilerbackend.h
         src/ccc/backends/externalcompilerbackend.h
+        src/ccc/backends/internaltccbackend.h
     PRIVATE
         src/ccc/environment.cpp
         src/ccc/engine.cpp
         src/ccc/backends/externalcompilerbackend.cpp
+        src/ccc/backends/internaltccbackend.cpp
 )
 
 target_include_directories(ToolchainCore
