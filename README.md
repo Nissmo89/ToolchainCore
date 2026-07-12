@@ -20,3 +20,7 @@ cmake --build build
 ```
 
 The module is designed to be embedded into `Nord_C`, not used as a standalone app.
+
+## Documentation
+
+- [API documentation](docs/doc.md)
