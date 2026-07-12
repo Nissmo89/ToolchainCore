@@ -1,0 +1,14 @@
+/build/
+/cmake-build-*/
+/graphify-out/
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dll
+*.dylib
+*.exe
+*.user
+*.pro.user
+
