@@ -113,6 +113,7 @@ struct CompileConfig {
     bool debugInfo = false;
     bool captureOutput = true;
     bool positionIndependentCode = false;
+    QString compilationDatabasePath;
 };
 
 struct CompilationResult {
