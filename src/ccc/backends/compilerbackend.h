@@ -14,6 +14,9 @@ public:
     [[nodiscard]] virtual CompilationResult compile(const QString &sourcePath,
                                                     const QString &outputPath,
                                                     const CompileConfig &config) const = 0;
+    [[nodiscard]] virtual CompilationResult link(const QStringList &objectPaths,
+                                                 const QString &outputPath,
+                                                 const CompileConfig &config) const = 0;
 };
 
 }
