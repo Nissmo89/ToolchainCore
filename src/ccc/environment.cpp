@@ -5,6 +5,8 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QStandardPaths>
+#include <QProcess>
+#include <QProcessEnvironment>
 
 namespace ccc {
 namespace {
@@ -286,6 +288,254 @@ QStringList Environment::resolveTccLibraryPaths()
 #endif
 
     return normalizePaths(libraryPaths);
+}
+
+QStringList Environment::systemIncludePaths(Language language, CompilerFamily family, const QString &compilerPath)
+{
+    QStringList paths;
+
+    if (family == CompilerFamily::Tcc) {
+        return resolveTccIncludePaths();
+    }
+
+    if (family == CompilerFamily::Msvc) {
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        QString envInclude = env.value(QStringLiteral("INCLUDE"));
+        if (!envInclude.isEmpty()) {
+            const QStringList list = envInclude.split(QLatin1Char(';'), Qt::SkipEmptyParts);
+            for (const QString &p : list) {
+                paths << QDir::cleanPath(p.trimmed());
+            }
+            return paths;
+        }
+
+#ifdef Q_OS_WIN
+        QString vsInstallPath;
+        QString programFilesX86 = env.value(QStringLiteral("ProgramFiles(x86)"), QStringLiteral("C:/Program Files (x86)"));
+        QString programFiles = env.value(QStringLiteral("ProgramFiles"), QStringLiteral("C:/Program Files"));
+        QString vswherePath = QDir(programFilesX86).filePath(QStringLiteral("Microsoft Visual Studio/Installer/vswhere.exe"));
+        
+        if (QFile::exists(vswherePath)) {
+            QProcess proc;
+            proc.start(vswherePath, {QStringLiteral("-latest"), QStringLiteral("-property"), QStringLiteral("installationPath")});
+            if (proc.waitForFinished(3000) && proc.exitCode() == 0) {
+                vsInstallPath = QString::fromUtf8(proc.readAllStandardOutput()).trimmed();
+            }
+        }
+
+        if (vsInstallPath.isEmpty()) {
+            QStringList candidateRoots = {
+                QDir(programFiles).filePath(QStringLiteral("Microsoft Visual Studio/2022/Community")),
+                QDir(programFiles).filePath(QStringLiteral("Microsoft Visual Studio/2022/Professional")),
+                QDir(programFiles).filePath(QStringLiteral("Microsoft Visual Studio/2022/Enterprise")),
+                QDir(programFiles).filePath(QStringLiteral("Microsoft Visual Studio/2022/BuildTools")),
+                QDir(programFilesX86).filePath(QStringLiteral("Microsoft Visual Studio/2019/Community")),
+                QDir(programFilesX86).filePath(QStringLiteral("Microsoft Visual Studio/2019/Professional")),
+                QDir(programFilesX86).filePath(QStringLiteral("Microsoft Visual Studio/2019/Enterprise")),
+                QDir(programFilesX86).filePath(QStringLiteral("Microsoft Visual Studio/2019/BuildTools"))
+            };
+            for (const QString &cand : candidateRoots) {
+                if (QDir(cand).exists()) {
+                    vsInstallPath = cand;
+                    break;
+                }
+            }
+        }
+
+        if (!vsInstallPath.isEmpty()) {
+            QDir msvcBase(QDir(vsInstallPath).filePath(QStringLiteral("VC/Tools/MSVC")));
+            if (msvcBase.exists()) {
+                const QStringList versions = msvcBase.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name | QDir::Reversed);
+                if (!versions.isEmpty()) {
+                    QString latestMsvcInclude = msvcBase.filePath(QDir(versions.first()).filePath(QStringLiteral("include")));
+                    if (QDir(latestMsvcInclude).exists()) {
+                        paths << QDir::cleanPath(latestMsvcInclude);
+                    }
+                }
+            }
+        }
+
+        QDir sdkBase(QStringLiteral("C:/Program Files (x86)/Windows Kits/10/Include"));
+        if (sdkBase.exists()) {
+            const QStringList versions = sdkBase.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name | QDir::Reversed);
+            if (!versions.isEmpty()) {
+                QString sdkVer = versions.first();
+                QStringList subfolders = {QStringLiteral("ucrt"), QStringLiteral("um"), QStringLiteral("shared"), QStringLiteral("winrt")};
+                for (const QString &sub : subfolders) {
+                    QString path = sdkBase.filePath(QDir(sdkVer).filePath(sub));
+                    if (QDir(path).exists()) {
+                        paths << QDir::cleanPath(path);
+                    }
+                }
+            }
+        }
+#endif
+        return paths;
+    }
+
+    QString compiler = compilerPath;
+    if (compiler.isEmpty()) {
+        compiler = findExternalCompiler(language);
+    }
+    if (compiler.isEmpty()) {
+        return paths;
+    }
+
+    QProcess proc;
+    QStringList args;
+    args << QStringLiteral("-E") << QStringLiteral("-v");
+    if (language == Language::Cpp) {
+        args << QStringLiteral("-xc++");
+    } else {
+        args << QStringLiteral("-xc");
+    }
+#ifdef Q_OS_WIN
+    args << QStringLiteral("NUL");
+#else
+    args << QStringLiteral("/dev/null");
+#endif
+
+    proc.start(compiler, args);
+    if (proc.waitForFinished(3000)) {
+        const QString output = QString::fromUtf8(proc.readAllStandardError());
+        const QStringList lines = output.split(QLatin1Char('\n'));
+        bool inSearchList = false;
+        for (const QString &line : lines) {
+            QString trimmed = line.trimmed();
+            if (trimmed.startsWith(QStringLiteral("#include <...> search starts here:"))) {
+                inSearchList = true;
+                continue;
+            }
+            if (trimmed.startsWith(QStringLiteral("End of search list."))) {
+                inSearchList = false;
+                break;
+            }
+            if (inSearchList && !trimmed.isEmpty()) {
+                paths << QDir::cleanPath(trimmed);
+            }
+        }
+    }
+
+    return paths;
+}
+
+QStringList Environment::systemLibraryPaths(CompilerFamily family, const QString &compilerPath)
+{
+    QStringList paths;
+
+    if (family == CompilerFamily::Tcc) {
+        return resolveTccLibraryPaths();
+    }
+
+    if (family == CompilerFamily::Msvc) {
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        QString envLib = env.value(QStringLiteral("LIB"));
+        if (!envLib.isEmpty()) {
+            const QStringList list = envLib.split(QLatin1Char(';'), Qt::SkipEmptyParts);
+            for (const QString &p : list) {
+                paths << QDir::cleanPath(p.trimmed());
+            }
+            return paths;
+        }
+
+#ifdef Q_OS_WIN
+        QString vsInstallPath;
+        QString programFilesX86 = env.value(QStringLiteral("ProgramFiles(x86)"), QStringLiteral("C:/Program Files (x86)"));
+        QString programFiles = env.value(QStringLiteral("ProgramFiles"), QStringLiteral("C:/Program Files"));
+        QString vswherePath = QDir(programFilesX86).filePath(QStringLiteral("Microsoft Visual Studio/Installer/vswhere.exe"));
+        
+        if (QFile::exists(vswherePath)) {
+            QProcess proc;
+            proc.start(vswherePath, {QStringLiteral("-latest"), QStringLiteral("-property"), QStringLiteral("installationPath")});
+            if (proc.waitForFinished(3000) && proc.exitCode() == 0) {
+                vsInstallPath = QString::fromUtf8(proc.readAllStandardOutput()).trimmed();
+            }
+        }
+
+        if (vsInstallPath.isEmpty()) {
+            QStringList candidateRoots = {
+                QDir(programFiles).filePath(QStringLiteral("Microsoft Visual Studio/2022/Community")),
+                QDir(programFiles).filePath(QStringLiteral("Microsoft Visual Studio/2022/Professional")),
+                QDir(programFiles).filePath(QStringLiteral("Microsoft Visual Studio/2022/Enterprise")),
+                QDir(programFiles).filePath(QStringLiteral("Microsoft Visual Studio/2022/BuildTools")),
+                QDir(programFilesX86).filePath(QStringLiteral("Microsoft Visual Studio/2019/Community")),
+                QDir(programFilesX86).filePath(QStringLiteral("Microsoft Visual Studio/2019/Professional")),
+                QDir(programFilesX86).filePath(QStringLiteral("Microsoft Visual Studio/2019/Enterprise")),
+                QDir(programFilesX86).filePath(QStringLiteral("Microsoft Visual Studio/2019/BuildTools"))
+            };
+            for (const QString &cand : candidateRoots) {
+                if (QDir(cand).exists()) {
+                    vsInstallPath = cand;
+                    break;
+                }
+            }
+        }
+
+        if (!vsInstallPath.isEmpty()) {
+            QDir msvcBase(QDir(vsInstallPath).filePath(QStringLiteral("VC/Tools/MSVC")));
+            if (msvcBase.exists()) {
+                const QStringList versions = msvcBase.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name | QDir::Reversed);
+                if (!versions.isEmpty()) {
+                    QString latestMsvcLib = msvcBase.filePath(QDir(versions.first()).filePath(QStringLiteral("lib/x64")));
+                    if (QDir(latestMsvcLib).exists()) {
+                        paths << QDir::cleanPath(latestMsvcLib);
+                    }
+                }
+            }
+        }
+
+        QDir sdkBase(QStringLiteral("C:/Program Files (x86)/Windows Kits/10/Lib"));
+        if (sdkBase.exists()) {
+            const QStringList versions = sdkBase.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name | QDir::Reversed);
+            if (!versions.isEmpty()) {
+                QString sdkVer = versions.first();
+                QStringList subfolders = {QStringLiteral("ucrt/x64"), QStringLiteral("um/x64")};
+                for (const QString &sub : subfolders) {
+                    QString path = sdkBase.filePath(QDir(sdkVer).filePath(sub));
+                    if (QDir(path).exists()) {
+                        paths << QDir::cleanPath(path);
+                    }
+                }
+            }
+        }
+#endif
+        return paths;
+    }
+
+    QString compiler = compilerPath;
+    if (compiler.isEmpty()) {
+        compiler = findExternalCompiler();
+    }
+    if (compiler.isEmpty()) {
+        return paths;
+    }
+
+    QProcess proc;
+    proc.start(compiler, {QStringLiteral("-print-search-dirs")});
+    if (proc.waitForFinished(3000)) {
+        const QString output = QString::fromUtf8(proc.readAllStandardOutput());
+        const QStringList lines = output.split(QLatin1Char('\n'));
+        for (const QString &line : lines) {
+            QString trimmed = line.trimmed();
+            if (trimmed.startsWith(QStringLiteral("libraries: ="))) {
+                QString listStr = trimmed.mid(12);
+#ifdef Q_OS_WIN
+                QStringList rawPaths = listStr.split(QLatin1Char(';'), Qt::SkipEmptyParts);
+#else
+                QStringList rawPaths = listStr.split(QLatin1Char(':'), Qt::SkipEmptyParts);
+#endif
+                for (const QString &raw : rawPaths) {
+                    QString cleaned = QDir::cleanPath(raw.trimmed());
+                    if (QDir(cleaned).exists()) {
+                        paths << cleaned;
+                    }
+                }
+                break;
+            }
+        }
+    }
+
+    return paths;
 }
 
 }
