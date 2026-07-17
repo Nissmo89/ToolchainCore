@@ -7,6 +7,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include "ccc/engine.h"
+#include "ccc/environment.h"
 
 int main(int argc, char *argv[])
 {
@@ -164,6 +165,20 @@ int main(int argc, char *argv[])
             qDebug() << "INFO: JIT compilation skipped/unavailable (libtcc not loaded). Message:" << jitResult.errorMessage;
         }
     }
+
+    // 6. Test system include and library path auto-discovery
+    qDebug() << "Test 5: System Include & Library Auto-Discovery ...";
+    QStringList systemIncludes = ccc::Environment::systemIncludePaths(ccc::Language::Cpp, ccc::CompilerFamily::Gnu);
+    QStringList systemLibs = ccc::Environment::systemLibraryPaths(ccc::CompilerFamily::Gnu);
+    
+    qDebug() << "Found system include paths count:" << systemIncludes.size();
+    qDebug() << "Found system library paths count:" << systemLibs.size();
+    
+    if (systemIncludes.isEmpty() && systemLibs.isEmpty()) {
+        qCritical() << "FAIL: Could not discover any system include or library paths.";
+        return 1;
+    }
+    qDebug() << "PASS: System path auto-discovery verified.";
 
     qDebug() << "--- ALL TESTS PASSED SUCCESSFULLY! ---";
     return 0;
