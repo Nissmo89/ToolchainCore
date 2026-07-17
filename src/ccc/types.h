@@ -3,6 +3,7 @@
 #include <QProcess>
 #include <QString>
 #include <QStringList>
+#include <memory>
 
 namespace ccc {
 
@@ -16,7 +17,8 @@ enum class OutputType {
     Executable,
     StaticLibrary,
     SharedLibrary,
-    Memory
+    Memory,
+    ObjectFile
 };
 
 enum class BackendKind {
@@ -24,6 +26,25 @@ enum class BackendKind {
     ExternalCompiler,
     InternalTcc
 };
+
+enum class CompilerFamily {
+    Gnu,  // GCC, Clang
+    Msvc, // MSVC
+    Tcc   // TinyCC
+};
+
+inline QString toString(CompilerFamily family)
+{
+    switch (family) {
+    case CompilerFamily::Gnu:
+        return QStringLiteral("gnu");
+    case CompilerFamily::Msvc:
+        return QStringLiteral("msvc");
+    case CompilerFamily::Tcc:
+        return QStringLiteral("tcc");
+    }
+    return QStringLiteral("gnu");
+}
 
 inline QString toString(Language language)
 {
@@ -49,6 +70,8 @@ inline QString toString(OutputType outputType)
         return QStringLiteral("shared-library");
     case OutputType::Memory:
         return QStringLiteral("memory");
+    case OutputType::ObjectFile:
+        return QStringLiteral("object-file");
     }
     return QStringLiteral("executable");
 }
@@ -66,6 +89,13 @@ inline QString toString(BackendKind backendKind)
     return QStringLiteral("auto");
 }
 
+enum class OptimizationLevel {
+    None,
+    Debug,
+    Speed,
+    Size
+};
+
 struct CompileConfig {
     Language language = Language::Auto;
     OutputType outputType = OutputType::Executable;
@@ -79,6 +109,8 @@ struct CompileConfig {
     QStringList definitions;
     QStringList compilerFlags;
     QString workingDirectory;
+    OptimizationLevel optimizationLevel = OptimizationLevel::None;
+    bool debugInfo = false;
     bool captureOutput = true;
     bool positionIndependentCode = false;
 };
@@ -95,6 +127,7 @@ struct CompilationResult {
     QString stdOut;
     QString stdErr;
     QString errorMessage;
+    std::shared_ptr<void> jitContext;
 };
 
 struct ExecutionResult {
