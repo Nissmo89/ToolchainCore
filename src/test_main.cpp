@@ -3,6 +3,9 @@
 #include <QFile>
 #include <QDir>
 #include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QJsonObject>
 #include "ccc/engine.h"
 
 int main(int argc, char *argv[])
@@ -40,6 +43,7 @@ int main(int argc, char *argv[])
     objConfig.outputType = ccc::OutputType::ObjectFile;
     objConfig.optimizationLevel = ccc::OptimizationLevel::Speed;
     objConfig.debugInfo = true;
+    objConfig.compilationDatabasePath = testDirPath;
 
     QString objPath = testDir.filePath("hello.o");
     ccc::CompilationResult compileResult = engine.compile(cppSourcePath, objPath, objConfig);
@@ -53,6 +57,39 @@ int main(int argc, char *argv[])
         qCritical() << "FAIL: Output object file does not exist at expected path.";
         return 1;
     }
+
+    // Verify compilation database generation
+    qDebug() << "Test 1b: Checking compile_commands.json ...";
+    QString dbFilePath = testDir.filePath("compile_commands.json");
+    if (!QFile::exists(dbFilePath)) {
+        qCritical() << "FAIL: compile_commands.json was not created.";
+        return 1;
+    }
+    QFile dbFile(dbFilePath);
+    if (!dbFile.open(QIODevice::ReadOnly)) {
+        qCritical() << "FAIL: Could not open compile_commands.json.";
+        return 1;
+    }
+    QJsonParseError parseErr;
+    QJsonDocument doc = QJsonDocument::fromJson(dbFile.readAll(), &parseErr);
+    dbFile.close();
+    if (parseErr.error != QJsonParseError::NoError || !doc.isArray()) {
+        qCritical() << "FAIL: compile_commands.json is invalid JSON or not an array." << parseErr.errorString();
+        return 1;
+    }
+    QJsonArray array = doc.array();
+    if (array.isEmpty()) {
+        qCritical() << "FAIL: compile_commands.json is empty.";
+        return 1;
+    }
+    QJsonObject entry = array.first().toObject();
+    QString dbFileEntry = entry.value("file").toString();
+    QString expectedSource = QFileInfo(cppSourcePath).absoluteFilePath();
+    if (QDir::cleanPath(dbFileEntry) != QDir::cleanPath(expectedSource)) {
+        qCritical() << "FAIL: compile_commands.json entry file mismatch. Expected:" << expectedSource << "Got:" << dbFileEntry;
+        return 1;
+    }
+    qDebug() << "PASS: compile_commands.json verified successfully.";
 
     // 3. Test Linking the Object File into an Executable (Part 3)
     qDebug() << "Test 2: Linking hello.o to executable ...";
