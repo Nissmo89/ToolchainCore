@@ -18,9 +18,13 @@ public:
     [[nodiscard]] static QString findExternalCompiler(Language language = Language::Auto,
                                                       const QString &preferred = QString());
     [[nodiscard]] static QString findArchiver(const QString &preferred = QString());
+    [[nodiscard]] static QStringList systemIncludePaths(Language language = Language::Auto,
+                                                        CompilerFamily family = CompilerFamily::Gnu,
+                                                        const QString &compilerPath = QString());
+    [[nodiscard]] static QStringList systemLibraryPaths(CompilerFamily family = CompilerFamily::Gnu,
+                                                        const QString &compilerPath = QString());
     [[nodiscard]] static QStringList resolveTccIncludePaths();
     [[nodiscard]] static QStringList resolveTccLibraryPaths();
 };
 
 }
-
