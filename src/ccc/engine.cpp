@@ -8,6 +8,10 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QProcess>
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QSaveFile>
 
 namespace ccc {
 namespace {
@@ -24,6 +28,104 @@ QString normalizedSourcePath(const QString &sourcePath, const QString &workingDi
     }
 
     return QDir(workingDirectory).absoluteFilePath(sourcePath);
+}
+
+void writeCompilationDatabaseEntry(const QString &dbPath,
+                                    const QString &sourcePath,
+                                    const QString &outputPath,
+                                    const QString &directory,
+                                    const QString &program,
+                                    const QStringList &arguments)
+{
+    if (dbPath.isEmpty() || sourcePath.isEmpty()) {
+        return;
+    }
+
+    QString jsonFilePath = dbPath;
+    QFileInfo dbInfo(dbPath);
+    if (dbInfo.isDir()) {
+        jsonFilePath = QDir(dbPath).filePath(QStringLiteral("compile_commands.json"));
+    } else if (dbInfo.exists() && dbInfo.isFile()) {
+        // use it directly
+    } else {
+        if (!dbPath.endsWith(QStringLiteral(".json"), Qt::CaseInsensitive)) {
+            QDir().mkpath(dbPath);
+            jsonFilePath = QDir(dbPath).filePath(QStringLiteral("compile_commands.json"));
+        } else {
+            QDir().mkpath(dbInfo.absolutePath());
+        }
+    }
+
+    QJsonArray array;
+    QFile readFile(jsonFilePath);
+    if (readFile.open(QIODevice::ReadOnly)) {
+        QJsonParseError err;
+        QJsonDocument doc = QJsonDocument::fromJson(readFile.readAll(), &err);
+        if (err.error == QJsonParseError::NoError && doc.isArray()) {
+            array = doc.array();
+        }
+        readFile.close();
+    }
+
+    const QString absoluteSource = QFileInfo(sourcePath).absoluteFilePath();
+    const QString absoluteOutput = outputPath.isEmpty() ? QString() : QFileInfo(outputPath).absoluteFilePath();
+
+    bool updated = false;
+    for (int i = 0; i < array.size(); ++i) {
+        QJsonObject obj = array[i].toObject();
+        if (QDir::cleanPath(obj.value(QStringLiteral("file")).toString()) == QDir::cleanPath(absoluteSource)) {
+            QJsonObject newObj;
+            newObj[QStringLiteral("directory")] = directory;
+            newObj[QStringLiteral("file")] = absoluteSource;
+            if (!absoluteOutput.isEmpty()) {
+                newObj[QStringLiteral("output")] = absoluteOutput;
+            }
+
+            QStringList fullCmdList;
+            fullCmdList << program;
+            fullCmdList << arguments;
+            newObj[QStringLiteral("command")] = fullCmdList.join(QLatin1Char(' '));
+
+            QJsonArray argsArray;
+            for (const QString &arg : fullCmdList) {
+                argsArray.append(arg);
+            }
+            newObj[QStringLiteral("arguments")] = argsArray;
+
+            array[i] = newObj;
+            updated = true;
+            break;
+        }
+    }
+
+    if (!updated) {
+        QJsonObject newObj;
+        newObj[QStringLiteral("directory")] = directory;
+        newObj[QStringLiteral("file")] = absoluteSource;
+        if (!absoluteOutput.isEmpty()) {
+            newObj[QStringLiteral("output")] = absoluteOutput;
+        }
+
+        QStringList fullCmdList;
+        fullCmdList << program;
+        fullCmdList << arguments;
+        newObj[QStringLiteral("command")] = fullCmdList.join(QLatin1Char(' '));
+
+        QJsonArray argsArray;
+        for (const QString &arg : fullCmdList) {
+            argsArray.append(arg);
+        }
+        newObj[QStringLiteral("arguments")] = argsArray;
+
+        array.append(newObj);
+    }
+
+    QSaveFile saveFile(jsonFilePath);
+    if (saveFile.open(QIODevice::WriteOnly)) {
+        QJsonDocument doc(array);
+        saveFile.write(doc.toJson(QJsonDocument::Indented));
+        saveFile.commit();
+    }
 }
 
 }
@@ -119,7 +221,16 @@ CompilationResult Engine::compile(const QString &sourcePath,
         }
 
         InternalTccBackend backend;
-        return backend.compile(absoluteSourcePath, QString(), normalized);
+        CompilationResult result = backend.compile(absoluteSourcePath, QString(), normalized);
+        if (result.success && !config.compilationDatabasePath.isEmpty()) {
+            writeCompilationDatabaseEntry(config.compilationDatabasePath,
+                                           absoluteSourcePath,
+                                           QString(),
+                                           workingDirectory,
+                                           result.program,
+                                           result.arguments);
+        }
+        return result;
 #else
         failure.errorMessage = QStringLiteral("Internal TCC backend is not enabled in this build.");
         return failure;
@@ -141,6 +252,14 @@ CompilationResult Engine::compile(const QString &sourcePath,
     CompilationResult result = backend.compile(absoluteSourcePath, absoluteOutputPath, normalized);
     if (result.outputPath.isEmpty()) {
         result.outputPath = absoluteOutputPath;
+    }
+    if (result.success && !config.compilationDatabasePath.isEmpty()) {
+        writeCompilationDatabaseEntry(config.compilationDatabasePath,
+                                       absoluteSourcePath,
+                                       result.outputPath,
+                                       workingDirectory,
+                                       result.program,
+                                       result.arguments);
     }
     return result;
 }
