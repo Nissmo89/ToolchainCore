@@ -14,6 +14,7 @@ public:
     [[nodiscard]] static QString executablePath(const QString &basePath);
     [[nodiscard]] static Language languageFromSourceFile(const QString &sourcePath);
     [[nodiscard]] static QStringList compilerCandidates(Language language);
+    [[nodiscard]] static CompilerFamily detectCompilerFamily(const QString &compilerPath);
     [[nodiscard]] static QString findExternalCompiler(Language language = Language::Auto,
                                                       const QString &preferred = QString());
     [[nodiscard]] static QString findArchiver(const QString &preferred = QString());

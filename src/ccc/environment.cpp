@@ -86,14 +86,39 @@ QString resolveExecutable(const QString &candidate)
 
 QStringList compilerCandidatesForC()
 {
+#ifdef Q_OS_WIN
+    return {QStringLiteral("cl"), QStringLiteral("clang"), QStringLiteral("gcc"), QStringLiteral("cc")};
+#else
     return {QStringLiteral("clang"), QStringLiteral("gcc"), QStringLiteral("cc")};
+#endif
 }
 
 QStringList compilerCandidatesForCpp()
 {
+#ifdef Q_OS_WIN
+    return {QStringLiteral("cl"), QStringLiteral("clang++"), QStringLiteral("g++"), QStringLiteral("c++")};
+#else
     return {QStringLiteral("clang++"), QStringLiteral("g++"), QStringLiteral("c++")};
+#endif
 }
 
+}
+
+CompilerFamily Environment::detectCompilerFamily(const QString &compilerPath)
+{
+    if (compilerPath.isEmpty()) {
+        return CompilerFamily::Gnu;
+    }
+
+    const QString filename = QFileInfo(compilerPath).fileName().toLower();
+    if ((filename.startsWith(QStringLiteral("cl")) && !filename.startsWith(QStringLiteral("clang"))) || filename == QStringLiteral("cl.exe")) {
+        return CompilerFamily::Msvc;
+    }
+    if (filename.startsWith(QStringLiteral("tcc")) || filename == QStringLiteral("tcc.exe")) {
+        return CompilerFamily::Tcc;
+    }
+
+    return CompilerFamily::Gnu;
 }
 
 QString Environment::executableSuffix()
