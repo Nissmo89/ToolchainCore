@@ -16,6 +16,10 @@ public:
                                             const QString &outputPath,
                                             const CompileConfig &config) const;
 
+    [[nodiscard]] CompilationResult link(const QStringList &objectPaths,
+                                         const QString &outputPath,
+                                         const CompileConfig &config) const;
+
     [[nodiscard]] RunResult compileAndRun(const QString &sourcePath,
                                           const QString &outputPath,
                                           const CompileConfig &config,
@@ -24,6 +28,9 @@ public:
     [[nodiscard]] ExecutionResult runExecutable(const QString &executablePath,
                                                 const QStringList &arguments = QStringList(),
                                                 const QString &workingDirectory = QString()) const;
+
+    [[nodiscard]] static void* getSymbolAddress(const CompilationResult &result,
+                                                const QString &symbolName);
 
 private:
     [[nodiscard]] static QString resolveWorkingDirectory(const QString &sourcePath,

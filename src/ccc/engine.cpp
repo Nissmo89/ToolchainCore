@@ -1,6 +1,9 @@
 #include "ccc/engine.h"
 
 #include "ccc/backends/externalcompilerbackend.h"
+#ifdef TOOLCHAINCORE_ENABLE_INTERNAL_TCC
+#include "ccc/backends/internaltccbackend.h"
+#endif
 
 #include <QDir>
 #include <QFileInfo>
@@ -69,25 +72,16 @@ CompilationResult Engine::compile(const QString &sourcePath,
         return failure;
     }
 
-    if (outputPath.isEmpty()) {
-        failure.errorMessage = QStringLiteral("Output path is empty.");
-        return failure;
-    }
-
-    if (config.outputType == OutputType::Memory) {
-        failure.errorMessage = QStringLiteral("Memory output is not enabled in the current ToolchainCore build.");
-        return failure;
-    }
-
     if (config.backendKind == BackendKind::InternalTcc) {
-        failure.errorMessage = QStringLiteral("Internal TCC backend is not enabled yet.");
-        return failure;
+        if (config.outputType != OutputType::Memory) {
+            failure.errorMessage = QStringLiteral("Internal TCC backend currently only supports OutputType::Memory.");
+            return failure;
+        }
     }
 
     CompileConfig normalized = config;
     const QString workingDirectory = resolveWorkingDirectory(sourcePath, config.workingDirectory);
-    const QString absoluteSourcePath = normalizedSourcePath(sourcePath, workingDirectory);
-    const QString absoluteOutputPath = resolveAbsolutePath(outputPath, workingDirectory);
+    const QString absoluteSourcePath = normalizedSourcePath(sourcePath, config.workingDirectory.isEmpty() ? QDir::currentPath() : config.workingDirectory);
     normalized.workingDirectory = workingDirectory;
 
     if (normalized.language == Language::Auto) {
@@ -99,6 +93,50 @@ CompilationResult Engine::compile(const QString &sourcePath,
         return failure;
     }
 
+    const bool memoryOutput = normalized.outputType == OutputType::Memory;
+    const bool useInternalTcc = [memoryOutput, backendKind = normalized.backendKind]() {
+        switch (backendKind) {
+        case BackendKind::InternalTcc:
+            return true;
+        case BackendKind::Auto:
+            return memoryOutput;
+        case BackendKind::ExternalCompiler:
+            return false;
+        }
+        return false;
+    }();
+
+    if (memoryOutput && !useInternalTcc) {
+        failure.errorMessage = QStringLiteral("OutputType::Memory requires the optional internal TCC backend.");
+        return failure;
+    }
+
+    if (useInternalTcc) {
+#ifdef TOOLCHAINCORE_ENABLE_INTERNAL_TCC
+        if (normalized.language != Language::C) {
+            failure.errorMessage = QStringLiteral("Internal TCC backend only supports C sources.");
+            return failure;
+        }
+
+        InternalTccBackend backend;
+        return backend.compile(absoluteSourcePath, QString(), normalized);
+#else
+        failure.errorMessage = QStringLiteral("Internal TCC backend is not enabled in this build.");
+        return failure;
+#endif
+    }
+
+    if (memoryOutput) {
+        failure.errorMessage = QStringLiteral("OutputType::Memory requires the optional internal TCC backend.");
+        return failure;
+    }
+
+    if (outputPath.isEmpty()) {
+        failure.errorMessage = QStringLiteral("Output path is empty.");
+        return failure;
+    }
+
+    const QString absoluteOutputPath = resolveAbsolutePath(outputPath, config.workingDirectory.isEmpty() ? QDir::currentPath() : config.workingDirectory);
     ExternalCompilerBackend backend;
     CompilationResult result = backend.compile(absoluteSourcePath, absoluteOutputPath, normalized);
     if (result.outputPath.isEmpty()) {
@@ -197,4 +235,61 @@ ExecutionResult Engine::runExecutable(const QString &executablePath,
     return result;
 }
 
+CompilationResult Engine::link(const QStringList &objectPaths,
+                               const QString &outputPath,
+                               const CompileConfig &config) const
+{
+    CompilationResult failure;
+
+    if (objectPaths.isEmpty()) {
+        failure.errorMessage = QStringLiteral("Object paths list is empty.");
+        return failure;
+    }
+
+    if (outputPath.isEmpty()) {
+        failure.errorMessage = QStringLiteral("Output path is empty.");
+        return failure;
+    }
+
+    if (config.backendKind == BackendKind::InternalTcc) {
+        failure.errorMessage = QStringLiteral("Internal TCC backend does not support linking object files.");
+        return failure;
+    }
+
+    QStringList absoluteObjectPaths;
+    const QString baseDir = config.workingDirectory.isEmpty() ? QDir::currentPath() : config.workingDirectory;
+    for (const QString &path : objectPaths) {
+        if (!path.isEmpty()) {
+            absoluteObjectPaths << resolveAbsolutePath(path, baseDir);
+        }
+    }
+
+    CompileConfig normalized = config;
+    const QString workingDirectory = config.workingDirectory.isEmpty()
+            ? (absoluteObjectPaths.isEmpty() ? QDir::currentPath() : QFileInfo(absoluteObjectPaths.first()).absolutePath())
+            : QDir(config.workingDirectory).absolutePath();
+    normalized.workingDirectory = workingDirectory;
+
+    const QString absoluteOutputPath = resolveAbsolutePath(outputPath, config.workingDirectory.isEmpty() ? QDir::currentPath() : config.workingDirectory);
+
+    ExternalCompilerBackend backend;
+    CompilationResult result = backend.link(absoluteObjectPaths, absoluteOutputPath, normalized);
+    if (result.outputPath.isEmpty()) {
+        result.outputPath = absoluteOutputPath;
+    }
+    return result;
 }
+
+void* Engine::getSymbolAddress(const CompilationResult &result, const QString &symbolName)
+{
+#ifdef TOOLCHAINCORE_ENABLE_INTERNAL_TCC
+    return InternalTccBackend::getSymbolAddress(result.jitContext, symbolName);
+#else
+    (void)result;
+    (void)symbolName;
+    return nullptr;
+#endif
+}
+
+}
+
