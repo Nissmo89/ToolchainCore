@@ -57,7 +57,7 @@ src/
         └── externalcompilerbackend.h/.cpp
 ```
 
-This first pass intentionally focuses on the external compiler backend. The internal TCC backend is reserved for a later phase and should remain optional behind a build flag.
+This first pass intentionally focuses on the external compiler backend. The internal TCC backend stays optional behind a build flag and is runtime-loaded so the default build still works when TinyCC is absent.
 
 ### 3.2 Public API Contract
 
@@ -167,7 +167,7 @@ This is the backend interface used by the engine. The first backend is the exter
 - `compileAndRun(...)`
 - `runExecutable(...)`
 
-Later, the engine can expose an optional memory-compilation path once the TCC backend is packaged and stable.
+The current optional TCC path is memory-only and runtime-loaded; plugin-style execution can be layered on later.
 
 ---
 
@@ -204,7 +204,7 @@ Later, if `Nord_C` still needs qmake integration, the module can expose a `.pri`
 ### Phase 2
 
 - add optional internal TCC support
-- support memory compilation and plugin-style execution
+- support memory compilation, with plugin-style execution as the next increment
 
 ### Phase 3
 

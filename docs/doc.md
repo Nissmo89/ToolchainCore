@@ -72,7 +72,7 @@ Current behavior:
 - `Executable` is supported.
 - `StaticLibrary` is supported through the external compiler backend plus an archiver.
 - `SharedLibrary` is supported through the external compiler backend.
-- `Memory` is reserved for the future internal `libtcc` backend and currently returns a failure in `ccc::Engine::compile`.
+- `Memory` is supported only when the optional internal `libtcc` backend is enabled and available at runtime.
 
 Example:
 
@@ -99,9 +99,10 @@ QString text = ccc::toString(ccc::BackendKind::ExternalCompiler); // "external-c
 
 Current behavior:
 
-- `Auto` resolves to the external compiler path in this build.
+- `Auto` resolves to the external compiler path for disk builds and to the optional internal TCC backend for `OutputType::Memory`.
 - `ExternalCompiler` is the implemented backend.
-- `InternalTcc` is reserved for a later phase and currently returns a failure from `ccc::Engine::compile`.
+- `InternalTcc` is optional, compiled in with `TOOLCHAINCORE_ENABLE_INTERNAL_TCC`, and only supports `OutputType::Memory` for C sources.
+- If the runtime library cannot be loaded, the backend returns a structured failure instead of breaking the build.
 
 Example:
 
@@ -172,10 +173,10 @@ Fields:
 - `exitCode` - process exit code
 - `exitStatus` - normal exit or crash/abort
 - `processError` - `QProcess` error state
-- `program` - resolved compiler or archiver program
-- `arguments` - raw process arguments
+- `program` - resolved compiler, archiver, or backend library identifier
+- `arguments` - raw process arguments or backend option summary
 - `commandLog` - readable command line log
-- `outputPath` - resolved artifact path
+- `outputPath` - resolved artifact path, or empty for memory output
 - `stdOut` - captured stdout when `captureOutput` is enabled
 - `stdErr` - captured stderr when `captureOutput` is enabled
 - `errorMessage` - human-readable failure message
@@ -193,7 +194,7 @@ if (!result.success) {
 How to read it:
 
 - `success == true` means the backend completed without a process failure.
-- `outputPath` is the final path the backend targeted.
+- `outputPath` is the final path the backend targeted, or empty for memory output.
 - `commandLog` is useful for showing the exact build command in the IDE.
 
 ---
@@ -335,7 +336,7 @@ QString archiver = ccc::Environment::findArchiver();
 
 ### `resolveTccIncludePaths()`
 
-Returns candidate include paths for a future TCC backend.
+Returns candidate include paths for the optional internal TCC backend.
 
 It currently probes:
 
@@ -348,13 +349,13 @@ It currently probes:
 
 ### `resolveTccLibraryPaths()`
 
-Returns candidate library paths for a future TCC backend.
+Returns candidate library paths for the optional internal TCC backend.
 
 It uses the same root discovery strategy as the include-path resolver.
 
 Note:
 
-- These helpers are part of the public API, but the current engine does not yet consume the internal TCC backend.
+- These helpers are used by the optional internal TCC backend when it is enabled.
 
 ---
 
@@ -384,6 +385,8 @@ public:
 ```
 
 Use this when you want to add a different compiler implementation without changing the engine API.
+
+The repository also includes an optional `InternalTccBackend` implementation behind `TOOLCHAINCORE_ENABLE_INTERNAL_TCC`. It is runtime-loaded and may be unavailable if TinyCC is not installed.
 
 ---
 
@@ -442,9 +445,10 @@ Behavior:
 
 - normalizes the working directory
 - infers language if needed
-- rejects `OutputType::Memory` in the current build
-- rejects `BackendKind::InternalTcc` in the current build
-- uses the external compiler backend for supported builds
+- requires `outputPath` for disk outputs and ignores it for `OutputType::Memory`
+- routes `OutputType::Memory` to the optional internal TCC backend when available
+- rejects `BackendKind::InternalTcc` for non-memory outputs
+- uses the external compiler backend for supported disk builds
 
 Example:
 
@@ -541,5 +545,5 @@ ccc::ExecutionResult result = engine.runExecutable("build/main");
 - `archiverPath` is optional. Leave it empty to search the PATH for an archiver.
 - `workingDirectory` is important when you pass relative include or library paths.
 - `captureOutput` should usually stay enabled for IDE integration.
-- `OutputType::Memory` and `BackendKind::InternalTcc` are placeholders for a later phase.
-
+- `OutputType::Memory` and `BackendKind::InternalTcc` are available only when the optional internal TCC backend is enabled.
+- The internal backend is runtime-optional and will be skipped if `libtcc` cannot be loaded.
