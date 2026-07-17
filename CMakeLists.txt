@@ -14,7 +14,7 @@ else()
     set(QT_PACKAGE Qt6)
 endif()
 
-option(TOOLCHAINCORE_ENABLE_INTERNAL_TCC "Enable the internal libtcc backend" OFF)
+option(TOOLCHAINCORE_ENABLE_INTERNAL_TCC "Enable the optional internal libtcc backend" OFF)
 
 add_library(ToolchainCore STATIC)
 add_library(ToolchainCore::ToolchainCore ALIAS ToolchainCore)
@@ -34,6 +34,15 @@ target_sources(ToolchainCore
         src/ccc/backends/externalcompilerbackend.cpp
 )
 
+if (TOOLCHAINCORE_ENABLE_INTERNAL_TCC)
+    target_sources(ToolchainCore
+        PRIVATE
+            src/ccc/backends/internaltccbackend.h
+            src/ccc/backends/internaltccbackend.cpp
+    )
+    target_compile_definitions(ToolchainCore PRIVATE TOOLCHAINCORE_ENABLE_INTERNAL_TCC)
+endif()
+
 target_include_directories(ToolchainCore
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
@@ -47,6 +56,5 @@ target_link_libraries(ToolchainCore
 target_compile_features(ToolchainCore PUBLIC cxx_std_20)
 target_compile_definitions(ToolchainCore PUBLIC CCC_STATIC)
 
-if (TOOLCHAINCORE_ENABLE_INTERNAL_TCC)
-    target_compile_definitions(ToolchainCore PUBLIC TOOLCHAINCORE_ENABLE_INTERNAL_TCC)
-endif()
+add_executable(test_runner src/test_main.cpp)
+target_link_libraries(test_runner PRIVATE ToolchainCore ${QT_PACKAGE}::Core)
